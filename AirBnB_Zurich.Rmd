@@ -1,0 +1,436 @@
+---
+title: "Air BnB project: Data Preparation and Exploration"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r}
+library(tidyverse)
+# don't show scientific notation
+options(scipen = 999)
+#read data
+zurich <- read_csv("zurich_listings_699_new.csv")
+colSums(is.na(zurich))
+```
+Read the data in R and browsed through data and Checking how many missing values in each of the columns
+
+```{r}
+# remove cols with no value at all and extra bathooms column(with greater NA percentage) as we have bathrooms_text with more values
+zurich1 <- zurich[,-c(36,50,69)]
+colSums(is.na(zurich1))
+```
+Now the data is saved in new df zurich1 with only cols that have values, removed- bathrooms, calender_update, license, where the entire columns had no values.
+```{r}
+test_cases <- complete.cases(zurich1)
+l <- sum(test_cases)
+percentage <- (l/nrow(zurich1))*100
+cat("percentage  and l", percentage, l)
+library(naniar)
+missing_var <- miss_var_summary(zurich1)
+print(missing_var)
+```
+Viewing percentage of values missing per each column
+
+```{r}
+# Review_score_value converted to factor and new variable is Review_value
+zurich1$review_scores_value[is.na(zurich1$review_scores_value)] <- 0
+summary(zurich1$review_scores_value)
+bins= c(-Inf,0,4,5)
+zurich1$review_value <- cut(zurich1$review_scores_value, breaks= bins, labels= c("No Reviews", "Poor Reviews","Good Reviews" ))
+table(zurich1$review_value)
+```
+review_scores_value has 730 NA's, imputing missing values with mean(4.629) or median (4.71) may not be appropriate as NA means it must not have been reviewed yet as the listing is new or no one has lived there to review. So, create a new category called "No Reviews"
+```{r}
+# Review_score_rating converted to factor and new variable is Review_rating
+zurich1$review_scores_rating[is.na(zurich1$review_scores_rating)] <- 0
+summary(zurich1$review_scores_rating)
+bins= c(-Inf,0,4,5)
+zurich1$review_rating <- cut(zurich1$review_scores_rating, breaks= bins, labels= c("No Reviews", "Poor Reviews","Good Reviews" ))
+table(zurich1$review_rating)
+```
+Followed similar process for rating
+```{r}
+# Review_score_rating converted to factor and new variable is Review_rating
+zurich1$review_scores_accuracy[is.na(zurich1$review_scores_accuracy)] <- 0
+summary(zurich1$review_scores_accuracy)
+bins= c(-Inf,0,4,5)
+zurich1$review_accuracy <- cut(zurich1$review_scores_accuracy, breaks= bins, labels= c("No Reviews", "Poor Reviews","Good Reviews" ))
+table(zurich1$review_accuracy)
+```
+Followed similar process for accuracy
+
+```{r}
+# Review_score_cleanliness  converted to factor and new variable is Review_cleanliness 
+zurich1$review_scores_cleanliness [is.na(zurich1$review_scores_cleanliness )] <- 0
+summary(zurich1$review_scores_cleanliness )
+bins= c(-Inf,0,4,5)
+zurich1$review_cleanliness  <- cut(zurich1$review_scores_cleanliness , breaks= bins, labels= c("No Reviews", "Poor Reviews","Good Reviews" ))
+table(zurich1$review_cleanliness )
+```
+Followed similar process for cleanliness
+```{r}
+# Review_score_checkin  converted to factor and new variable is Review_checkin
+zurich1$review_scores_checkin [is.na(zurich1$review_scores_checkin )] <- 0
+summary(zurich1$review_scores_checkin )
+bins= c(-Inf,0,4,5)
+zurich1$review_checkin  <- cut(zurich1$review_scores_checkin , breaks= bins, labels= c("No Reviews", "Poor Reviews","Good Reviews" ))
+table(zurich1$review_checkin )
+```
+Followed similar process for checkin
+```{r}
+# Review_score_communication  converted to factor and new variable is Review_communication
+zurich1$review_scores_communication [is.na(zurich1$review_scores_communication )] <- 0
+summary(zurich1$review_scores_communication )
+bins= c(-Inf,0,4,5)
+zurich1$review_communication  <- cut(zurich1$review_scores_communication , breaks= bins, labels= c("No Reviews", "Poor Reviews","Good Reviews" ))
+table(zurich1$review_communication )
+```
+Followed same process for communication
+```{r}
+# Review_score_location   converted to factor and new variable is Review_location 
+zurich1$review_scores_location  [is.na(zurich1$review_scores_location  )] <- 0
+summary(zurich1$review_scores_location  )
+bins= c(-Inf,0,4,5)
+zurich1$review_location   <- cut(zurich1$review_scores_location  , breaks= bins, labels= c("No Reviews", "Poor Reviews","Good Reviews" ))
+table(zurich1$review_location  )
+```
+Followed same process for location
+
+```{r}
+# EXTRACTING PRICE & BATHS
+zurich2 <- zurich1 %>% 
+          mutate(NumPrice=as.numeric(gsub("[$,]","",zurich1$price))) %>%
+          mutate(baths=case_when(
+            grepl("(half).*",  zurich1$bathrooms_text, ignore.case = TRUE) ~0.5,
+            TRUE ~ as.numeric(gsub("[^0-9.]+","",zurich1$bathrooms_text))
+          ))
+head(zurich2$NumPrice)
+colSums(is.na(zurich2))
+zurich2$baths <- ifelse(is.na(zurich2$baths), 1,zurich2$baths) # imputing the last na value, manually checking bathrroms_text for this index, revealed it was 1 bath, so imputed with 1
+
+```
+Extracting price in chr columnn and converting to interger and extracting baths and **creating a ratio variable guests per bath**
+
+```{r}
+#Imputing missing values in 'beds'
+zurich2$beds <- ifelse(is.na(zurich2$beds) & zurich2$room_type == "Shared room", zurich2$accommodates,
+                       ifelse(is.na(zurich2$beds) & zurich2$room_type %in% c("Private room", "Entire home/apt") & zurich2$accommodates %in% 1:2, 1,
+                              ifelse(is.na(zurich2$beds) & zurich2$room_type %in% c("Private room", "Entire home/apt") & zurich2$accommodates %in% 3:8, ceiling(zurich2$accommodates/2),
+                       zurich2$beds)))
+
+colSums(is.na(zurich2))
+```
+Imputed missing beds values such based on room type and accommodates combinations. If room type is shared room, then assigned beds to the value of accommodates. This assumes that the number of beds in a shared room is equal to the capacity of accommodation.
+If room type is private room or entire apartment, accommodates 1 or 2 people, then assigned beds=1, this assumes that for small accommodations, there is likely only one bed available.
+If the room type is private room or entire apartment, accommodates 3 to 8 people, then assigned beds = accommodates /2 and rounded to nearest integer. This assumes that for larger accommodations, the number of beds is approximately half of the accommodation capacity.
+
+```{r}
+# Creating new variabales guests per bath and bed
+zurich_FE <- zurich2 %>% mutate(guestsPerBath= zurich2$accommodates/zurich2$baths) %>% mutate(guestsPerBed = zurich2$accommodates/zurich2$beds)
+head(zurich_FE,2)
+```
+Created new variables guests per bath and guests per bed, as those ratios may provide a better indication of comfort than single beds or bath or accommodates.
+```{r}
+# Impute Price
+zurich_test <- zurich_FE %>% 
+  group_by(neighbourhood_group_cleansed,neighbourhood_cleansed, property_type,room_type, beds) %>% arrange(neighbourhood_group_cleansed,neighbourhood_cleansed, property_type,room_type, beds)
+       
+zurich_imputed <- zurich_test %>% 
+  mutate(NumPrice= ifelse(is.na(NumPrice), mean(NumPrice, na.rm= TRUE), NumPrice))
+colSums(is.na(zurich_imputed))
+# Removing redundant price and bathrooms_text as new variales NumPrice and baths are created
+zurich_imputed <- zurich_imputed[,-c(35,38)]
+head(zurich_imputed,2)
+
+```
+No NA's in price now.
+
+```{r}
+test_values <- unique(zurich1$host_neighbourhood)
+print(test_values)
+```
+Seeing what values does host-neighborhood have
+
+```{r}
+cleansed<- unique(zurich1$neighbourhood_cleansed)
+grp_cleansed <- unique(zurich1$neighbourhood_group_cleansed)
+print(cleansed)
+print(grp_cleansed)
+```
+The above neighborhoods and circles are in Zurich
+```{r}
+zurich_baths <- zurich2 %>% filter(is.na(baths))
+
+zurich2$baths <- as.numeric(gsub("(half).*", "0.5", zurich2$baths, ignore.case = TRUE))
+
+```
+Replacing another pattern in baths which was not covered in extraction steps a little above.
+
+**SUMMARY of IMPUTATION PROCESS**
+1. Reviewed the data and removed any columns that have no values at all like bathroooms, calender_updated and license columns. Then proceeded to extract baths from bathrooms_text. Then extracted price as numeric and stored in a new variable NumPrice. Then grouped the data based on District(neighborhood_group_cleansed) and neighborhood variables and computed mean price for each subgroup, and imputed the missing values in that subgroup with the mean NumPrice for that sub group. Contemplated using linear regression to impute, but proceeded with simpler mean imputation. Later for missing values in bed followed the following strategy: 
+
+Imputed missing beds values such based on room type and accommodates combinations. If room type is shared room, then assigned beds to the value of accommodates. This assumes that the number of beds in a shared room is equal to the capacity of accommodation.
+If room type is private room or entire apartment, accommodates 1 or 2 people, then assigned beds=1, this assumes that for small accommodations, there is likely only one bed available.
+If the room type is private room or entire apartment, accommodates 3 to 8 people, then assigned beds = accommodates /2 and rounded to nearest integer. This assumes that for larger accommodations, the number of beds is approximately half of the accommodation capacity.
+
+Then created two more variables guests per bed and guests per bath, as those ratios may provide a better indication of comfort than single beds or bath or accommodates variables in the classification/predictions models that come later.
+```{r}
+# SUMMARY STATS: #1
+zurich2 <-  zurich2 %>% 
+  mutate(PricePerGuest = NumPrice/accommodates)
+
+zurich_sum <- zurich2 %>%
+  group_by(neighbourhood_group_cleansed,neighbourhood_cleansed) %>%
+  arrange(neighbourhood_group_cleansed,neighbourhood_cleansed)
+
+summary_stats <- zurich_sum %>% summarise(
+  MeanPrice = mean(NumPrice),
+  MeanPricePerGuest=mean(PricePerGuest),
+  MedianPrice = median(NumPrice, na.rm = TRUE),
+  NumListings = n(),
+  MinPrice = min(NumPrice, na.rm = TRUE), 
+    MaxPrice = max(NumPrice, na.rm = TRUE), 
+    PriceVariability = sd(NumPrice, na.rm = TRUE))
+
+print(summary_stats)
+
+```
+Summary stats printed, description from line 217
+```{r}
+# Summary statistic 3 : mean availability of the property in number of days, for each neighborhood
+
+zurich_availability <- zurich2 %>%
+  group_by(neighbourhood_group_cleansed,neighbourhood_cleansed, room_type) %>%
+  arrange(neighbourhood_group_cleansed,neighbourhood_cleansed, room_type) %>%
+  summarize(meanAvailability = round(mean(availability_30))) %>%
+  mutate(Occupancy = ifelse(meanAvailability==0, "Fully Occupied", "Available"))
+
+# Identifying fully occupied neighborhoods
+fully_occupied <- zurich_availability %>%
+  filter(Occupancy=="Fully Occupied") %>%
+  select(neighbourhood_group_cleansed,neighbourhood_cleansed, room_type)
+print("Properties in the following neighborhoods are fully occupied")
+print(fully_occupied)
+```
+It appears, in the next 30 days there are no Private rooms available in City, Kreis 1 to rent. And no shared rooms in Schwamendingen-Mitte, no hotel rooms in Langstrasse and no shared rooms in Gewerbeschule
+
+**Summary statistics: **
+1. Mean prices are calculated for each combination of neighborhood circle and actual neighborhood.
+2. price per guest is calculated  for each listing and then Mean of price per guest for each sub group- neighborhood.
+3. Median price for each neighborhood in a district is calculated.
+4. Number of listings
+5. Price variability or standard deviation for each neighborhood in a district is calculated.
+6. Also Minimum and maximum price in the listing of each neighborhood for a district is calculated.
+
+Low Supply in District and Neighborhood:
+From summary statistics generated we can see that the supply(only 8 listings) is very low in district Kries12, neighborhood Saatlen
+
+Highest Supply in Districts:
+The highest supply(maximum listings) is from Kreis11- Oerlikon, Kreis1- Rathaus with 134 and 129 listing respectively. These districts have the most options available for accommodation.
+
+The mean price per guest is lowest in Kreis11- Affoltern at 46.9 CHF, this indicates that accommodations in this area tend to be more affordable on a per-guest basis.
+The mean price per guest is the highest in Kreis1- City at 146.625 CHF, this suggests that accommodations in the city center are typically more expensive per guest.
+
+Also , we notice high price variability in Kries 2 Enge with standard deviation of 1007.7, this suggests that there is a wide range of prices among listings in this area, with some being significantly more expensive or cheaper than the average. 
+and Kreis2 Leimbach has low price variability with 33.52,  indicates that prices among listings in this area are relatively consistent, with less variation compared to other districts.
+
+In addition, it appears, in the next 30 days there are no Private rooms available in City, Kreis 1 to rent. And no shared rooms in Schwamendingen-Mitte, no hotel rooms in Langstrasse and no shared rooms in Gewerbeschule
+
+
+```{r}
+# DATA VISUALISATION
+# Plot to visualize mean price per guest across neighborhoods
+ggplot(summary_stats, aes(x=MeanPricePerGuest, y= fct_reorder(neighbourhood_cleansed,MeanPricePerGuest),color=neighbourhood_group_cleansed))+
+   geom_point()+
+  labs(x= "Mean Price", y= "Neighborhood", fill= "District")+
+  scale_fill_manual(name= "District")
+```
+The mean price per neighborhood ordered in increasing order. Enge stands out as having the highest mean price per guest, which is consistent with its high standard deviation, suggesting greater variability in prices.
+```{r}
+# Plot to visualize mean price per guest across neighborhoods
+ggplot(summary_stats, aes(x=MeanPricePerGuest, y= fct_reorder(neighbourhood_cleansed,MeanPricePerGuest)))+
+  geom_point(color= "purple")+
+  labs(x= "Mean Price", y= "Neighborhood")+
+  facet_wrap(~neighbourhood_group_cleansed, scales= "free_y")+
+  scale_color_brewer(palette="Set1")+
+    theme(axis.text.x=element_text(angle=45, hjust=1))
+```
+All neighborhoods seem to me more or less in the same price range, except for City, Lindenhof, which seem costly neighborhoods
+Confirming our summary stats above, we can see that mean price guest is highest in Enge because of high standard deviation. Otheriwse City and Lindenhof are costly neighborhoods. 
+```{r}
+ggplot(summary_stats, aes(x=MeanPricePerGuest, y= fct_reorder(neighbourhood_cleansed,MeanPricePerGuest)))+
+  geom_point(color= "purple")+
+  labs(x= "Mean Price", y= "Neighborhood")+
+  facet_grid(~neighbourhood_group_cleansed, scales= "free_y")+
+  scale_color_brewer(palette="Set1")+
+    theme(axis.text.x=element_text(angle=45, hjust=1))
+```
+Confirming our ealrier summary stats we notice high variability in prices in Kreis2, whereas district1 or Kreis 1 has low variability.
+
+```{r}
+# 2nd summary statistic
+
+zurich_room_types <- zurich2 %>%
+  group_by(neighbourhood_group_cleansed,neighbourhood_cleansed, room_type) %>%
+  arrange(neighbourhood_group_cleansed,neighbourhood_cleansed, room_type) %>%
+  summarize (roomtypes= n())
+```
+Created a grouped dataframe to be used for plotting
+
+```{r}
+# Visualising number of listing for each neighborhood in a district by room types
+ggplot(zurich_room_types, aes(x = neighbourhood_cleansed, y = roomtypes, fill = room_type)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~ neighbourhood_group_cleansed, scales = "free_x", nrow = 1) +  
+  labs(x = "Neighborhood", y = "Count", fill = "Room Type") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.background = element_blank(), 
+        strip.text.x = element_text(size = 10, face = "bold"))  
+```
+The above visualisation provides a way to understand how airbnb listings are distributed across neighborhoods and roomtypes within a district of Zurich. We see that there are greater number of hotels available in District1/Kreis1
+Overall there are very few shared rooms available in Zurich. Mostly entire home or apartment is listed. The listings are generally for all room types in District12 or Kreis 12
+
+```{r}
+# Plotting availability by room type for each neighborhood
+
+ggplot(zurich_availability, aes(x=meanAvailability, y= fct_reorder(neighbourhood_cleansed,meanAvailability),fill=room_type))+
+   geom_bar(stat= "identity")+
+  labs(x= "Mean no of days available", y= "Neighborhood", fill= "Room Type")+
+  ggtitle("Availability in next 30 days")
+  #geom_text(aes(label= meanAvailability), position= position_dodge(width= 0.9), vjust= -0.5, color= "black", size =3)
+  
+```
+If a certain color bar is not seen, it means either that neighborhood has no available properties to rent or that there no properties of the type in that neighborhoods.
+
+```{r}
+# Neighborhoods by rating
+
+zurich_rating <- zurich2 %>%
+  group_by(neighbourhood_group_cleansed,neighbourhood_cleansed, room_type) %>%
+  arrange(neighbourhood_group_cleansed,neighbourhood_cleansed, room_type) %>%
+  summarize(meanRating = mean(review_scores_rating, na.rm= TRUE)) 
+
+head(zurich_rating,5)
+```
+Mean rating is calculated for each neighborhood.
+```{r}
+# Plotting ratings for neighborhoods
+ggplot(zurich_rating)+
+  geom_point(aes(x= meanRating, fct_reorder(neighbourhood_cleansed,meanRating),color=room_type))+
+  labs(x= "Mean Rating", y= "Neighborhood", color= "Room Type")+
+  ggtitle("Mean review rating by neighbourhood")
+```
+In the above graph if the rating is zero, it could also be because of no reviews. In general private rooms seem to have good ratings.
+
+```{r}
+# Visualising mean acceptance rate for each neighbourhood in a district
+zurich3 <- zurich2 %>% 
+  mutate(AcceptanceRate = as.numeric(gsub("[%,]", "", zurich2$host_acceptance_rate)))
+
+mean_acceptance <- mean(zurich3$AcceptanceRate, na.rm = TRUE)
+
+zurich3$AcceptanceCategory <- ifelse(is.na(zurich3$AcceptanceRate),
+                                      "Not available",
+                                      ifelse(zurich3$AcceptanceRate > mean_acceptance,
+                                             "High acceptance",
+                                             "Low acceptance"))
+
+zurich3$AcceptanceRate <- as.numeric(zurich3$AcceptanceRate)
+
+zurich_acceptance <- zurich3 %>%
+  group_by(neighbourhood_group_cleansed,neighbourhood_cleansed, room_type) %>%
+  arrange(neighbourhood_group_cleansed,neighbourhood_cleansed, room_type) %>%
+  summarize(mean_acceptance= mean(AcceptanceRate, na.rm= TRUE))
+
+ggplot(zurich_acceptance, aes(x=mean_acceptance, y= fct_reorder(neighbourhood_cleansed,mean_acceptance)))+
+  geom_point(color= "purple")+
+  labs(x= "Mean Price", y= "Neighborhood")+
+  facet_grid(~neighbourhood_group_cleansed, scales= "free_y")+
+  scale_color_brewer(palette="Set1")+
+    theme(axis.text.x=element_text(angle=45, hjust=1))
+```
+In general the host accpetance rate seems to be good, but there are few a hosts with low acceptance rates in City, Unterass, etc..This information can help guests gauge the responsiveness and willingness of hosts to accept booking requests in different neighborhoods.
+
+```{r}
+#Word Cloud
+
+library(tidytext)
+library(wordcloud)
+subset <- zurich %>% select(neighborhood_overview)
+colSums(is.na(subset))
+subset_cleaned <- subset[!is.na(subset$neighborhood_overview),]
+tokens <- unnest_tokens(subset_cleaned, output= tokens, input= neighborhood_overview)
+tokens_nostopwords <- anti_join(tokens, stop_words, by=c("tokens"="word"))
+#unigram word cloud
+word_counts <- tokens_nostopwords %>% count(tokens, sort=TRUE)
+# remove br (break chr)
+word_counts <- word_counts[-1,]
+
+word_counts %>% 
+  with(wordcloud(tokens,n,max.words=25))
+
+```
+
+Unigram cloud
+It appears that the advertisements highlight the walking distance to other spots, availability of trams services near by, whether there are any restaurants and bars nearby, and which neighborhood is the property located in.
+
+```{r}
+library(tm)
+#bigrams
+bigrams <- unnest_tokens(subset_cleaned, output=bigrams, input = neighborhood_overview, token="ngrams", n=2)
+#bigrams_counts <- bigrams %>% count(bigrams, sort=TRUE)
+bigrams_nostopwords <- anti_join(bigrams, stop_words, by= c("bigrams"="word"))
+bigrams_counts <- bigrams_nostopwords %>% count(bigrams, sort=TRUE)
+#bigram wordcloud
+#bigrams_counts %>% 
+  #with(wordcloud(bigrams,n,max.words=25))
+
+# remove stop words
+
+bigrams_vector <- unlist(bigrams)
+stopwords_en <- stopwords("en")
+bigrams_filtered <- removeWords(bigrams_vector,stopwords_en)
+bigrams_df <- data.frame(bigrams=bigrams_filtered)
+bigrams_df_counts <- bigrams_df %>% count(bigrams, sort=TRUE)
+bigrams_df_counts_cleaned <- bigrams_df_counts[-c(1,3,6),]
+
+#bigram wordcloud
+
+bigrams_df_counts_cleaned %>% 
+  with(wordcloud(bigrams,n,max.words=25))
+```
+**Need to be adjusted to remove redundant zurich, etc...**
+It appears that the advertisements highlight the walking distance to other spots, availability of trams services near by, whether there are any restaurants and bars nearby, and which neighborhood is the property located in.
+
+```{r}
+# Mapping
+
+library(leaflet)
+
+m <- leaflet() %>% 
+  addTiles() %>% 
+  addCircles(lng=zurich$longitude,lat=zurich$latitude)
+print(m)
+```
+
+The map of zurich
+We see that Limmar river passers through Zurich and we see many airbnb's around the river.
+
+```{r}
+zurich_map <- zurich3 %>% 
+  filter(neighbourhood_group_cleansed == "Kreis 1" & neighbourhood_cleansed=="City")
+m_City <- leaflet() %>% 
+  addTiles() %>% 
+  addCircles(lng=zurich_map$longitude,lat=zurich_map$latitude)
+print(m_City)
+
+```
+
+In addition to river there is velotunnel, an underground bicyle path
+
+Insert image: ![Map1](/Users/pranathi_sec/Desktop/Screenshot 2024-04-30 at 11.20.04 PM.png)
+![Map2](/Users/pranathi_sec/Desktop/Screenshot 2024-04-30 at 11.23.50 PM.png)
+
+
+

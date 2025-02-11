@@ -1,0 +1,376 @@
+---
+title: "Airbnb project Naive Bayes"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(naniar)
+library(dplyr)
+library(class)
+library(AER)
+library(forecast)
+library(visualize)
+library(caret)
+library(FNN)
+# don't show scientific notation
+options(scipen = 999)
+#read data
+zurich <- read_csv("C:\\Users\\amaia\\OneDrive\\Escritorio\\Data Mining\\Assignments\\Group\\zurich_listings.csv")
+```
+Read the data in R and browsed through data
+```{r}
+colSums(is.na(zurich))
+```
+Chcking how many missing values in each of the columns
+```{r}
+b <- unique(zurich$amenities)
+print(b)
+```
+It appears amenities has only [], no actual values in it
+
+```{r}
+# remove cols with no value at all
+zurich1 <- zurich[,-c(7,36,38,40,50,69)]
+colSums(is.na(zurich1))
+```
+Now the data is saved in new df zurich1 with only cols that have values, removed- bedrooms, bathrooms, calender_update, license, description. In addition removing amenities, which has no actual values, only []
+```{r}
+test_cases <- complete.cases(zurich1)
+l <- sum(test_cases)
+percentage <- (l/nrow(zurich1))*100
+cat("percentage  and l", percentage, l)
+library(naniar)
+missing_var <- miss_var_summary(zurich1)
+print(missing_var)
+```
+Viewing percentage of values missing per each column
+
+```{r}
+# Review_score_value converted to factor and new variable is Review_value
+zurich1$review_scores_value[is.na(zurich1$review_scores_value)] <- 0
+summary(zurich1$review_scores_value)
+bins= c(-Inf,3.5,4.5,5)
+zurich1$review_value <- cut(zurich1$review_scores_value, breaks= bins, labels= c("poor_reviews","moderate_reviews", "good_reviews" ))
+table(zurich1$review_value)
+```
+review_scores_value has 730 NA's, imputing missing values with mean(4.629) or median (4.71) may not be appropriate as NA means it must not be reviewed yet as the listing is new or no one has lived there to review.
+```{r}
+# Review_score_rating converted to factor and new variable is Review_rating
+
+zurich1$review_scores_rating[is.na(zurich1$review_scores_rating)] <- 0
+quantile_edges <- quantile(zurich1$review_scores_rating, probs = c(0, 1/3, 2/3, 1), na.rm = TRUE)
+zurich1$review_rating <- cut(zurich1$review_scores_rating, 
+                             breaks = quantile_edges, 
+                             labels = c("poor_reviews", "moderate_reviews", "good_reviews"),
+                             include.lowest = TRUE)
+
+table(zurich1$review_rating)
+summary(zurich1$review_rating)
+```
+Followed similar process for rating
+```{r}
+# Review_score_rating converted to factor and new variable is Review_rating
+zurich1$review_scores_accuracy[is.na(zurich1$review_scores_accuracy)] <- 0
+summary(zurich1$review_scores_accuracy)
+bins= c(-Inf,0,4,5)
+zurich1$review_accuracy <- cut(zurich1$review_scores_accuracy, breaks= bins, labels= c("no_reviews", "poor_reviews","good_reviews" ))
+table(zurich1$review_accuracy)
+```
+Followe similar process for accuracy
+
+```{r}
+# Review_score_cleanliness  converted to factor and new variable is Review_cleanliness 
+zurich1$review_scores_cleanliness [is.na(zurich1$review_scores_cleanliness )] <- 0
+summary(zurich1$review_scores_cleanliness )
+bins= c(-Inf,0,4,5)
+zurich1$review_cleanliness  <- cut(zurich1$review_scores_cleanliness , breaks= bins, labels= c("no_reviews", "poor_reviews","good_reviews" ))
+table(zurich1$review_cleanliness )
+```
+Followed similar process for cleanliness
+```{r}
+# Review_score_checkin  converted to factor and new variable is Review_checkin
+zurich1$review_scores_checkin [is.na(zurich1$review_scores_checkin )] <- 0
+summary(zurich1$review_scores_checkin )
+bins= c(-Inf,0,4,5)
+zurich1$review_checkin  <- cut(zurich1$review_scores_checkin , breaks= bins, labels= c("no_reviews", "poor_reviews","good_reviews" ))
+table(zurich1$review_checkin )
+```
+Followed similar process for checkin
+```{r}
+# Review_score_communication  converted to factor and new variable is Review_communication
+zurich1$review_scores_communication [is.na(zurich1$review_scores_communication )] <- 0
+summary(zurich1$review_scores_communication )
+bins= c(-Inf,0,4,5)
+zurich1$review_communication  <- cut(zurich1$review_scores_communication , breaks= bins, labels= c("no_reviews", "poor_reviews", "good_reviews" ))
+table(zurich1$review_communication )
+```
+Followed same process for communication
+```{r}
+# Review_score_location   converted to factor and new variable is Review_location 
+zurich1$review_scores_location  [is.na(zurich1$review_scores_location  )] <- 0
+summary(zurich1$review_scores_location  )
+bins= c(-Inf,0,4,5)
+zurich1$review_location   <- cut(zurich1$review_scores_location  , breaks= bins, labels= c("no_reviews", "poor_reviews","good_reviews"))
+table(zurich1$review_location  )
+```
+Followed same process for location
+```{r}
+# Removing redundant review scores
+
+zurich1 <- zurich1[,-c(57,58,59,60,61,62,62)]
+dim(zurich1)
+```
+Removed 7 columns
+
+```{r}
+# EXTRACTING PRICE & BATHS
+zurich2 <- zurich1 %>% 
+          mutate(NumPrice=as.numeric(gsub("[$,]","",zurich1$price))) %>%
+          mutate(baths=case_when(
+            grepl("(half).*",  zurich1$bathrooms_text, ignore.case = TRUE) ~0.5,
+            TRUE ~ as.numeric(gsub("[^0-9.]+","",zurich1$bathrooms_text))
+          ))
+head(zurich2$NumPrice)
+colSums(is.na(zurich2))
+zurich2$baths <- ifelse(is.na(zurich2$baths), 1,zurich2$baths) # imputing the last na value
+
+```
+Extracting price in chr columnn and converting to interger and extracting baths and creating a ratio variable guests per bath
+```{r}
+
+#***To me removed later***
+# Imputing missing price values
+u_room_type<- unique(zurich2$room_type)
+u_property_type <- unique(zurich2$property_type)
+print(u_room_type)
+print(u_property_type)
+```
+Unique property types
+```{r}
+#***To me removed later***
+test_u_property_type <- zurich2 %>% filter(property_type=="Casa particular")
+test_u_room_type <- zurich2 %>% filter(room_type=="Hotel room")
+test_u_beds <- unique(zurich2$beds)
+table(test_u_beds)
+summary(test_u_beds)
+c<- mode(test_u_beds)
+print(c)
+
+```
+test
+
+```{r}
+#Imputing missing values in 'beds'
+zurich2$beds <- ifelse(is.na(zurich2$beds) & zurich2$room_type == "Shared room", zurich2$accommodates,
+                       ifelse(is.na(zurich2$beds) & zurich2$room_type %in% c("Private room", "Entire home/apt") & zurich2$accommodates %in% 1:2, 1,
+                              ifelse(is.na(zurich2$beds) & zurich2$room_type %in% c("Private room", "Entire home/apt") & zurich2$accommodates %in% 3:8, ceiling(zurich2$accommodates/2),
+                       zurich2$beds)))
+
+colSums(is.na(zurich2))
+```
+Imputed missing beds values such based on room type and accommodates combinations
+
+```{r}
+# Creating new variabales guests per bath and bed
+zurich_FE <- zurich2 %>% mutate(guestsPerBath= zurich2$accommodates/zurich2$baths) %>% mutate(guestsPerBed = zurich2$accommodates/zurich2$beds)
+head(zurich_FE,2)
+
+zurich_FE<- zurich_FE %>%
+  mutate(guestsPerBath= ifelse(baths==0, 0, guestsPerBath))
+
+```
+Created new variables guests per bath and guests per bed
+
+```{r}
+#***REDUNDANT STEP, REMOVE LATER****
+zurich2_price_nonas<- zurich2 %>% filter(!is.na(NumPrice))
+zurich2_price_nas<- zurich2 %>% filter(is.na(NumPrice))
+zurich2_beds_nonas <- zurich2 %>% filter(is.na(beds))
+price_imputing_mlr_model <- lm(NumPrice~neighbourhood_cleansed + neighbourhood_group_cleansed  + room_type +accommodates+beds, zurich2_price_nonas)
+step_mlr <- step(price_imputing_mlr_model,  method= "backward")
+summary(price_imputing_mlr_model)
+impute_price_preds <- predict(price_imputing_mlr_model,zurich2_price_nas)
+```
+Another way
+```{r}
+# Impute Price
+zurich_test <- zurich_FE %>% group_by(neighbourhood_group_cleansed,neighbourhood_cleansed, property_type,room_type, beds) %>% arrange(neighbourhood_group_cleansed,neighbourhood_cleansed, property_type,room_type, beds)
+       
+zurich_imputed <- zurich_test %>% mutate(NumPrice= ifelse(is.na(NumPrice), mean(NumPrice, na.rm= TRUE), NumPrice))
+colSums(is.na(zurich_imputed))
+# Removing redundant price and bathrooms_text as new variales NumPrice and baths are created
+zurich_imputed <- zurich_imputed[,-c(35,37)]
+head(zurich_imputed,2)
+```
+Still we have 43 missing values for Price
+
+```{r}
+test_values <- unique(zurich1$host_neighbourhood)
+print(test_values)
+```
+Seeing what values does host-neighborhood have
+```{r}
+seerow<- zurich1[465,]
+print(seerow)
+```
+To copy
+```{r}
+cleansed<- unique(zurich1$neighbourhood_cleansed)
+grp_cleansed <- unique(zurich1$neighbourhood_group_cleansed)
+print(cleansed)
+print(grp_cleansed)
+```
+The above neighborhoods and circles are in Zurich
+```{r}
+zurich_baths <- zurich2 %>% filter(is.na(baths))
+
+zurich2$baths <- as.numeric(gsub("(half).*", "0.5", zurich2$baths, ignore.case = TRUE))
+
+```
+
+
+
+##NAIVE BAYES
+```{r}
+zurich_naive <- zurich_imputed
+
+zurich_naive <- zurich_naive %>%
+  select(c(host_response_time, host_is_superhost, host_has_profile_pic, host_identity_verified, property_type, accommodates, number_of_reviews, review_rating, NumPrice, guestsPerBath, guestsPerBed))%>%
+  mutate(across(where(is.character), as.factor))
+
+zurich_naive$host_is_superhost[c(593, 1299)] <- "FALSE"
+
+quantile_edges <- quantile(zurich_naive$NumPrice, probs = c(0, 1/3, 2/3, 1), na.rm = TRUE)
+zurich_naive$price_category <- cut(zurich_naive$NumPrice, 
+                                   breaks = quantile_edges, 
+                                   labels = c("Low", "Medium", "High"),
+                                   include.lowest = TRUE)
+zurich_naive <- zurich_naive %>%
+  select(-c(NumPrice))
+
+zurich_naive <- na.omit(zurich_naive, subset = c("price_category"))
+
+q_accomodates <- quantile(zurich_naive$accommodates, probs = c(0, 1/3, 2/3, 1), na.rm = TRUE)
+zurich_naive$accommodates_group <- cut(zurich_naive$accommodates, 
+                                   breaks = q_accomodates, 
+                                   labels = c("Low", "Medium", "High"),
+                                   include.lowest = TRUE)
+zurich_naive <- zurich_naive %>%
+  select(-c(accommodates))
+
+q_beds <- c(min(zurich_naive$guestsPerBed), 1.5, 3, max(zurich_naive$guestsPerBed))
+zurich_naive$beds_group <- cut(zurich_naive$guestsPerBed, 
+                                   breaks = q_beds, 
+                                   labels = c("Low", "Medium", "High"),
+                                   include.lowest = TRUE)
+zurich_naive <- zurich_naive %>%
+  select(-c(guestsPerBed))
+
+q_number_reviews <- quantile(zurich_naive$number_of_reviews, probs = c(0, 1/3, 2/3, 1), na.rm = TRUE)
+zurich_naive$number_reviews_group <- cut(zurich_naive$number_of_reviews, 
+                                   breaks = q_number_reviews, 
+                                   labels = c("Low", "Medium", "High"),
+                                   include.lowest = TRUE)
+zurich_naive <- zurich_naive %>%
+  select(-c(number_of_reviews))
+
+q_baths <- quantile(zurich_naive$guestsPerBath, probs = c(0, 1/3, 2/3, 1), na.rm = TRUE)
+zurich_naive$baths_group <- cut(zurich_naive$guestsPerBath, 
+                                   breaks = q_baths, 
+                                   labels = c("Low", "Medium", "High"),
+                                   include.lowest = TRUE)
+zurich_naive <- zurich_naive %>%
+  select(-c(guestsPerBath))
+```
+
+
+
+
+*Barplot*
+```{r}
+
+categorical_vars <- c("host_is_superhost", "host_response_time", "price_category", "room_type", "host_has_profile_pic", "neighbourhood_group_cleansed","neighbourhood_cleansed", "room_type", "beds", "host_identity_verified", "property_type", "accommodates_group", "beds_group", "number_reviews_group", "baths_group")
+plot_list <- list()
+
+for (var in categorical_vars) {
+  zurich_naive[[var]] <- as.factor(zurich_naive[[var]])
+  zurich_naive[["review_rating"]] <- as.factor(zurich_naive[["review_rating"]])
+  
+  
+  plot_list[[var]] <- ggplot(zurich_naive, aes_string(x = var, fill = "review_rating")) +
+    geom_bar(position = "fill") +
+    labs(y = "Proportion", x = var, fill = "Reviews Scores Value") +
+    theme_minimal()
+  
+  print(plot_list[[var]])
+}
+```
+
+
+*Naive Model*
+```{r}
+zurich_naive <- zurich_naive %>%
+  select(-c(price_category, accommodates_group, beds_group, baths_group, host_identity_verified))
+
+library(e1071)
+zurich_naive <- zurich_naive %>%
+  mutate(across(where(is.character), as.factor))
+
+set.seed(70)
+idx <- createDataPartition(zurich_naive$review_rating, p=0.6, list=FALSE)
+training_set <- zurich_naive[idx,]
+validation_set <- zurich_naive[-idx,]
+
+nb_model <- naiveBayes(review_rating ~., data = training_set)
+nb_model
+```
+
+
+*Confusion matrix*
+```{r}
+#training
+confusionMatrix(predict(nb_model, newdata=training_set), training_set$review_rating)
+
+#validation
+confusionMatrix(predict(nb_model, newdata=validation_set), validation_set$review_rating)
+```
+
+
+
+
+*Prediction*
+```{r}
+fictional_rental <- data.frame(
+  neighbourhood_group_cleansed= "Kreis 1",
+  neighbourhood_cleansed = "City",
+  room_type = "Entire home/apt",
+  beds = factor("3", levels= levels(zurich_naive$beds)),
+  host_response_time = factor("within a few hours", levels = levels(zurich_naive$host_response_time)),
+  host_is_superhost = factor("TRUE", levels = c("FALSE", "TRUE")),
+  host_has_profile_pic = TRUE,
+  property_type = "Entire rental unit",
+  review_rating = factor("Moderate_reviews", levels = c("poor_reviews", "Moderate_reviews", "good_reviews")),
+  number_reviews_group = factor("High", levels = c("Low", "Medium", "High"))
+)
+
+predicted_bin <- predict(nb_model, newdata = fictional_rental, type = "class")
+print(predicted_bin)
+```
+
+
+The objective of this project is to utilize a Naive Bayes classification model to predict guest satisfaction levels for Airbnb rentals in Zurich, focusing on how much value guests perceive from their stay. This approach aimed to categorize their experiences into three distinct levels of satisfaction: poor, moderate, and good reviews.
+
+During the data preparation phase, we strategically selected features that could significantly impact a guest's experience, such as 'host_is_superhost' and 'host_response_time', while excluding less impactful variables like URLs and geolocation data. This careful selection helped streamline our model, focusing on variables most likely to affect guest satisfaction.
+The Naive Bayes classifier was trained using these chosen features, with 'review_scores_value' being divided into three balanced categories. This categorization facilitated a more effective learning process for the model, enabling it to distinguish between different levels of guest reviews more accurately.
+
+We evaluated the model using key performance metrics such as sensitivity, specificity, and the positive predictive value for each review category. The final statistics indicated an overall accuracy of 65.55% in the training phase and 64.32% in validation, demonstrating the model's capability to consistently predict guest satisfaction across different datasets. The Kappa statistic of 0.4831 further validated the model's effectiveness beyond chance, highlighting its reliability in classifying reviews accurately.
+
+To illustrate the model's practical utility, we crafted a fictional rental scenario and successfully predicted it as 'moderate_reviews'. This demonstration not only confirmed the model's operational effectiveness but also its potential for real-world application.
+
+In conclusion, while the Naive Bayes model proved to be a valuable tool for gauging and predicting guest satisfaction, there is potential for further enhancement. Future improvements could include more sophisticated feature engineering and the integration of additional data sources to enrich the model's understanding and predictive power, thereby refining its accuracy and broadening its applicability in real-world scenarios.
+
+

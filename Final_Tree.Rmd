@@ -1,0 +1,159 @@
+```{r}
+library(tidyverse)
+options(scipen = 999)
+zurich <- read_csv("zurich_listings_699 (1).csv")
+b <- unique(zurich$amenities)
+zurich1 <- zurich[,-c(7,36,38,40,50,69)]
+test_cases <- complete.cases(zurich1)
+l <- sum(test_cases)
+percentage <- (l/nrow(zurich1))*100
+cat("percentage  and l", percentage, l)
+library(naniar)
+missing_var <- miss_var_summary(zurich1)
+zurich1$review_scores_value[is.na(zurich1$review_scores_value)] <- 0
+bins= c(-Inf,0,4,5)
+zurich1$review_value <- cut(zurich1$review_scores_value, breaks= bins, labels= c("No Reviews", "Poor Reviews","Good Reviews" ))
+zurich1$review_scores_accuracy[is.na(zurich1$review_scores_accuracy)] <- 0
+#summary(zurich1$review_scores_accuracy)
+bins= c(-Inf,0,4,5)
+zurich1$review_accuracy <- cut(zurich1$review_scores_accuracy, breaks= bins, labels= c("No Reviews", "Poor Reviews","Good Reviews" ))
+zurich1$review_scores_rating[is.na(zurich1$review_scores_rating)] <- 0
+bins= c(-Inf,0,4,5)
+zurich1$review_rating <- cut(zurich1$review_scores_rating, breaks= bins, labels= c("No Reviews", "Poor Reviews","Good Reviews" ))
+zurich1$review_scores_cleanliness [is.na(zurich1$review_scores_cleanliness )] <- 0
+bins= c(-Inf,0,4,5)
+zurich1$review_cleanliness  <- cut(zurich1$review_scores_cleanliness , breaks= bins, labels= c("No Reviews", "Poor Reviews","Good Reviews" ))
+zurich1$review_scores_checkin [is.na(zurich1$review_scores_checkin )] <- 0
+bins= c(-Inf,0,4,5)
+zurich1$review_checkin  <- cut(zurich1$review_scores_checkin , breaks= bins, labels= c("No Reviews", "Poor Reviews","Good Reviews" ))
+zurich1$review_scores_communication [is.na(zurich1$review_scores_communication )] <- 0
+bins= c(-Inf,0,4,5)
+zurich1$review_communication  <- cut(zurich1$review_scores_communication , breaks= bins, labels= c("No Reviews", "Poor Reviews","Good Reviews" ))
+zurich1$review_scores_location  [is.na(zurich1$review_scores_location  )] <- 0
+bins= c(-Inf,0,4,5)
+zurich1$review_location   <- cut(zurich1$review_scores_location  , breaks= bins, labels= c("No Reviews", "Poor Reviews","Good Reviews" ))
+zurich1 <- zurich1[,-c(57,58,59,60,61,62,62)]
+zurich2 <- zurich1 %>% 
+          mutate(NumPrice=as.numeric(gsub("[$,]","",zurich1$price))) %>%
+          mutate(baths=case_when(
+            grepl("(half).*",  zurich1$bathrooms_text, ignore.case = TRUE) ~0.5,
+            TRUE ~ as.numeric(gsub("[^0-9.]+","",zurich1$bathrooms_text))
+          ))
+zurich2$baths <- ifelse(is.na(zurich2$baths), 1,zurich2$baths)
+u_room_type<- unique(zurich2$room_type)
+u_property_type <- unique(zurich2$property_type)
+test_u_property_type <- zurich2 %>% filter(property_type=="Casa particular")
+test_u_room_type <- zurich2 %>% filter(room_type=="Hotel room")
+test_u_beds <- unique(zurich2$beds)
+c<- mode(test_u_beds)
+zurich2$beds <- ifelse(is.na(zurich2$beds) & zurich2$room_type == "Shared room", zurich2$accommodates,
+                       ifelse(is.na(zurich2$beds) & zurich2$room_type %in% c("Private room", "Entire home/apt") & zurich2$accommodates %in% 1:2, 1,
+                              ifelse(is.na(zurich2$beds) & zurich2$room_type %in% c("Private room", "Entire home/apt") & zurich2$accommodates %in% 3:8, ceiling(zurich2$accommodates/2),
+                       zurich2$beds)))
+zurich_FE <- zurich2 %>% mutate(guestsPerBath= zurich2$accommodates/zurich2$baths) %>% mutate(guestsPerBed = zurich2$accommodates/zurich2$beds)
+zurich2_price_nonas<- zurich2 %>% filter(!is.na(NumPrice))
+zurich2_price_nas<- zurich2 %>% filter(is.na(NumPrice))
+zurich2_beds_nonas <- zurich2 %>% filter(is.na(beds))
+price_imputing_mlr_model <- lm(NumPrice~neighbourhood_cleansed + neighbourhood_group_cleansed  + room_type +accommodates+beds, zurich2_price_nonas)
+#{step_mlr <- step(price_imputing_mlr_model,  method= "backward")}
+impute_price_preds <- predict(price_imputing_mlr_model,zurich2_price_nas)
+zurich_test <- zurich_FE %>% group_by(neighbourhood_group_cleansed,neighbourhood_cleansed, property_type,room_type, beds) %>% arrange(neighbourhood_group_cleansed,neighbourhood_cleansed, property_type,room_type, beds)
+       
+zurich_imputed <- zurich_test %>% mutate(NumPrice= ifelse(is.na(NumPrice), mean(NumPrice, na.rm= TRUE), NumPrice))
+zurich_imputed <- zurich_imputed[,-c(35,37)]
+test_values <- unique(zurich1$host_neighbourhood)
+seerow<- zurich1[465,]
+cleansed<- unique(zurich1$neighbourhood_cleansed)
+grp_cleansed <- unique(zurich1$neighbourhood_group_cleansed)
+zurich_baths <- zurich2 %>% filter(is.na(baths))
+zurich2$baths <- as.numeric(gsub("(half).*", "0.5", zurich2$baths, ignore.case = TRUE))
+```
+
+                                                                   Classification Tree
+```{r}
+# Load necessary libraries
+library(dplyr)
+library(rpart)
+library(rpart.plot)
+library(caret)
+library(ggplot2)
+library(tidyverse)
+library(naniar)
+library(dplyr)
+library(arules)
+library(arulesViz)
+library(caret)
+library(rpart)
+library(rpart.plot)
+
+# Step 1: Replace "N/A" with "no response"
+zurich_imputed$host_response_time <- ifelse(zurich_imputed$host_response_time == "N/A", "no response", zurich_imputed$host_response_time)
+
+zurich_imputed$host_is_superhost <- as.factor(zurich_imputed$host_is_superhost)
+zurich_imputed$host_identity_verified <- as.factor(zurich_imputed$host_identity_verified)
+zurich_imputed$instant_bookable <- as.factor(zurich_imputed$instant_bookable)
+zurich_imputed$room_type <- as.factor(zurich_imputed$room_type)
+
+# Step 2: Selecting relevant columns
+data_for_model <- zurich_imputed %>%
+  select( host_is_superhost, host_identity_verified, instant_bookable,room_type)
+
+
+
+# Splitting the dataset into training and validation sets
+set.seed(123)  # for reproducibility
+sample <- createDataPartition(zurich_imputed$host_response_time, p=0.6, list=FALSE)
+train.df <- zurich_imputed[sample,]
+valid.df <- zurich_imputed[-sample,]
+
+
+# Building the classification tree on the training data with simplified parameters
+tree_model <- rpart(host_response_time ~  instant_bookable+ host_is_superhost+ host_identity_verified+room_type , data = train.df, method = "class", control = rpart.control(cp = 0.0))
+
+# Plotting the tree with simpler visual settings
+rpart.plot(tree_model, extra = 106 , box.palette = "Greens")
+```
+```{r}
+# Print the complexity parameter table
+printcp(tree_model)
+
+# Plot the complexity parameter against cross-validation error
+plotcp(tree_model)
+
+# Use the xerror (cross-validated error) to find the optimal cp value
+optimal_cp <- tree_model$cptable[which.min(tree_model$cptable[, "xerror"]), "CP"]
+optimal_cp
+
+# Now prune the tree using the optimal cp value
+pruned_tree <- prune(tree_model, cp = 0.001)
+
+# Plot the pruned tree
+rpart.plot(pruned_tree, extra = 106, box.palette = "Greens")
+
+
+library(caret)
+# Optionally, you can evaluate the pruned tree's performance on the validation set
+predictions <- predict(pruned_tree, valid.df, type = "class")
+
+print(confusionMatrix)
+# Convert both the predicted and true class labels to factors
+predictions_factor <- factor(predictions, levels = unique(c(predictions, valid.df$host_response_time)))
+reference_factor <- factor(valid.df$host_response_time, levels = unique(c(predictions, valid.df$host_response_time)))
+
+# Now use these factors in the confusionMatrix function
+confusionMatrix(data = predictions_factor, reference = reference_factor)
+
+
+predictions <- predict(pruned_tree, valid.df, type = "class")
+confusionMatrix <- table(Predicted = predictions, Actual = valid.df$host_response_time)
+print(confusionMatrix)
+```
+We started by preparing our dataset, where we transformed key variables into factors and replaced missing values labeled "N/A" with "no response". To streamline our model and reduce its complexity, we chose to focus on specific variables that we believed would significantly impact Airbnb host response times. These included whether the host is a superhost, their identity verification status, if the listing is instantly bookable, and the type of room offered. By limiting the number of variables, we aimed to simplify the tree structure and make our model easier to interpret. Using the rpart package in R, we constructed a classification tree centered around these chosen features. To ensure our model was neither underfitting nor overfitting, we employed cross-validation methods to pinpoint the ideal complexity parameter (cp). This helped us prune our tree effectively, maintaining only the most significant branches and ensuring our model was robust yet straightforward.
+
+Insights:
+
+From the visual analysis of the initial tree, it was clear that certain features, like superhost status and room type, played a pivotal role in predicting how quickly a host would respond. The cross-validation process led us to the optimal cp value, which we used to prune our tree to enhance its generalizability to new data. After refining our model, we tested its performance on a validation set. The results, illustrated through the confusion matrix, revealed that our model excelled in predicting responses "within an hour" but faced challenges with less common categories such as "a few days or more". This discrepancy suggested potential areas for further data collection or model adjustment to better capture these rare outcomes.
+
+We also uncovered the intricate factors that influence host responsiveness on Airbnb. Our choice to focus on select variables was not only strategic in reducing the tree's complexity but also effective in drawing meaningful conclusions from the model. This was not just about building a predictive model but also about gaining deeper insights that could benefit both hosts, by helping them understand factors that lead to faster response times, and guests, by setting more accurate expectations. This project was a valuable learning experience in applying various techniques to real-world data.
+
+

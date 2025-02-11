@@ -1,0 +1,224 @@
+---
+title: "R Notebook"
+output:
+  html_document:
+    df_print: paged
+---
+
+
+
+```{r}
+library(readr)
+zurich <- read_csv("Desktop/AD 699/zurich_listings_699.csv")
+colSums(is.na(zurich))
+```
+
+```{r}
+#Prepare the data for my clustering
+data <- zurich[, c("price","number_of_reviews", "bedrooms", "review_scores_rating", "latitude", "longitude" )]
+str(data)
+```
+
+```{r}
+data$price <- as.numeric(gsub("[\\$,]", "", zurich$price))
+```
+
+```{r}
+colSums(is.na(data))
+```
+```{r}
+get_mode <- function(v) {
+   uniqv <- unique(v)
+   uniqv[which.max(tabulate(match(v, uniqv)))]
+}
+
+mode_bedrooms <- get_mode(data$bedrooms[!is.na(data$bedrooms)])
+```
+
+
+
+```{r}
+library(dplyr)
+#clean variable "bedroom" 
+data$bedrooms[is.na(data$bedrooms)] <- mode_bedrooms
+
+lower_limit <- 0
+upper_limit <- 5
+
+# Filter out outliers
+data <- data %>%
+  filter(bedrooms >= lower_limit & bedrooms <= upper_limit)
+summary(data$bedrooms)
+```
+
+
+
+
+
+```{r}
+
+#clean "review score rating" 
+median_rating <- median(data$review_scores_rating, na.rm = TRUE)
+
+# Impute missing values with the median
+data$review_scores_rating[is.na(data$review_scores_rating)] <- median_rating
+summary(data$review_scores_rating)
+```
+```{r}
+
+colSums(is.na(data))
+```
+
+
+
+
+```{r}
+#clean "price"
+IQR <- IQR(data$price)
+upper_bound <- quantile(data$price, 0.75) + (1.5 * IQR)
+lower_bound <- quantile(data$price, 0.25) - (1.5 * IQR)
+data <- subset(data, data$price <= upper_bound & data$price >= lower_bound)
+
+```
+
+
+```{r}
+data_scaled <- scale(data)
+View(data_scaled)
+```
+
+
+```{r}
+wcss <- sapply(1:10, function(k) {
+  kmeans(data, centers = k, nstart = 20)$tot.withinss
+})
+plot(1:10, wcss, type = "b", pch = 19, col = "blue", xlab = "Number of Clusters", ylab = "WCSS",
+     main = "Elbow Method for Determining Optimal k")
+```
+
+```{r}
+#choose k=3 based on the Elbow chart
+set.seed(123)
+k <- 3  
+clusters <- kmeans(data_scaled, centers = k)
+```
+
+
+
+```{r}
+clusters$centers
+```
+For the clustering analysis of Airbnb properties in Zurich,  I employed the K-means clustering algorithm to categorize Airbnb properties in Zurich, categorize the listings based on four key attributes: price, number of bedrooms, review scores, and the number of reviews. This approach aims to segment the properties into distinct groups, each representing a different type of accommodation based on their pricing, size, guest satisfaction, and popularity.
+
+This segmentation provides valuable insights into the diverse offerings within the Zurich Airbnb market, enabling potential guests to make informed decisions that align with their preferences and budget. 
+
+
+Cluster 1: "Premium and Popular" - This cluster might represent more expensive listings due to the high price among all the clusters, with a larger number of bedrooms, which could suggest more spacious or luxury accommodations. They also have a relatively higher number of reviews, which might indicate popularity.
+
+Cluster 2: "Economical and Cozy" - This cluster could represent more budget-friendly and smaller listings. The review_scores_rating is slightly below the mean, suggesting average satisfaction.
+
+Cluster 3: "Moderate and Satisfactory" - This cluster has very negative values for price, indicating lower prices, and an average number of bedrooms. The review_scores_rating is above the mean, indicating that these listings are well-reviewed, possibly offering a balance between quality and cost.
+
+
+```{r}
+library(GGally)
+library(ggdendro)
+centroids <- data.frame(clusters$centers)
+centroids['Cluster'] = paste('Cluster', seq(1, nrow(centroids)))
+ggparcoord(centroids, columns=1:6, groupColumn='Cluster', showPoints=TRUE) +
+  scale_color_viridis_d() +
+  labs(x='Variable', y='Scaled Value') +
+  theme_minimal() +
+  ggtitle("Parallel Coordinates Plot of Cluster Centroids")
+```
+
+
+
+
+```{r}
+library(ggplot2)
+ggplot(data_scaled, aes(x = latitude, y = longitude, color = as.factor(clusters$cluster))) +
+  geom_point(alpha = 0.5) +
+  labs(color = 'Cluster') +
+  ggtitle('Scatter Plot of Clusters') +
+  theme_minimal()
+
+```
+```{r}
+cluster_counts <- table(factor(clusters$cluster))
+barplot(cluster_counts, 
+        main="Counts of Rental Units in Each Cluster", 
+        xlab="Cluster", 
+        ylab="Count",
+        col=c("#FF9999", "#99CC99", "#9999FF"))
+
+```
+Among all the clusters, cluster 3 (Moderate and Satisfactory) has the largest number, which means majority people choose airbnb in Zurich more focus on the moderate price, well-reviewed place to stay; cluster 1 has the fewest number due to higher price and more bedrooms, suggesting that these higher-priced, larger accommodations are less common or in lesser demand compared to other types of listings. While Cluster 2 is in the middle, indicating a good availability of budget-friendly accommodations. This popularity can be linked to travelers prioritizing affordability without sacrificing comfort, appealing especially to those who plan extended stays or are budget-conscious.
+
+
+```{r}
+library(ggplot2)
+data$cluster_factor <- factor(clusters$cluster, labels = c('Premium and Popular', 'Economical and Cozy', 'Moderate and Satisfactory'))
+
+ggplot(data, aes(x = cluster_factor, y = price, color = cluster_factor)) +
+  geom_boxplot() +
+  labs(title = "Price Distribution by Cluster", x = "Cluster", y = "Price") +
+  scale_color_manual(values = c('Premium and Popular' = '#FF9999', 'Economical and Cozy' = '#99CC99', 'Moderate and Satisfactory' = '#9999FF')) +
+  scale_x_discrete(breaks = c('Premium and Popular', 'Economical and Cozy', 'Moderate and Satisfactory'), labels = c('1', '2', '3')) +
+  theme_minimal()
+```
+
+Cluster is characterized by a higher median price range and a broader spread in prices, including several higher outliers, suggesting that these listings are generally more expensive, likely due to superior amenities or locations; Cluster 2 Displays a lower and tighter price range with a slightly higher median than Cluster 3, this cluster represents more budget-friendly options that cater to travelers looking for affordable accommodations; Cluster 3 features a moderate price range with a substantial number of outliers on the higher end, indicating a mix of moderately priced listings generally viewed as offering a balance between cost and comfort.
+
+
+
+```{r}
+#centroid plot of cluster
+centroids <- aggregate(cbind(bedrooms, price) ~ clusters$cluster, data, mean)
+cluster_labels <- c('Premium and Popular', 'Economical and Cozy', 'Moderate and Satisfactory')
+centroids$cluster_name <- cluster_labels[centroids$cluster]
+```
+
+
+```{r}
+ggplot(data, aes(x = bedrooms, y = price)) +
+  geom_point(alpha = 0) +  
+  geom_point(data = centroids, aes(x = bedrooms, y = price, color = cluster_name), size = 5) +
+  scale_color_manual(values = c('Premium and Popular' = '#FF9999', 'Economical and Cozy' = '#99CC99', 'Moderate and Satisfactory' = '#9999FF')) +
+  labs(title = "Centroid Plot of Clusters",
+       x = "Number of bedrooms",
+       y = "price",
+       color = "Cluster") +
+  theme_minimal()
+```
+
+The positioning of the centroids clearly delineates the distinct offerings in the Zurich Airbnb market: from luxury and spacious accommodations to modest and budget-friendly options, catering to diverse traveler needs and preferences.
+
+Cluster 1 Represented by the red dot, this cluster's centroid is positioned at the highest price point, suggesting these listings are the most expensive. It's also placed at a higher number of bedrooms, indicating that these listings typically offer more space, which could be a factor in their premium pricing; Cluster 2 Shown in green, this cluster's centroid is at the lowest price point and near the lower end of the bedroom scale. This suggests that these listings are the most budget-friendly and generally have fewer bedrooms, which aligns with their description as economical and cozy. Cluster 3  represents purple, which is positioned moderately in terms of both price and bedrooms. This placement indicates that listings in this cluster offer a balance of affordability and comfort, providing a satisfactory option for a broad range of travelers.
+
+```{r}
+data$cluster <- clusters$cluster
+library(dplyr)
+cluster_summary <- data %>%
+  group_by(cluster) %>%
+  summarize(
+    avg_price = mean(price, na.rm = TRUE),
+    avg_review_scores_rating = mean(review_scores_rating, na.rm = TRUE),
+    bedrooms = mean(bedrooms, na.rm = TRUE)
+  )
+
+# Order clusters by average price
+cluster_summary <- cluster_summary %>% arrange(desc(avg_price))
+
+# See the summary
+print(cluster_summary)
+```
+```{r}
+ggplot(cluster_summary, aes(x = factor(cluster), y = avg_price)) +
+  geom_bar(stat = "identity", fill = 'skyblue') +
+  theme_minimal() +
+  labs(x = 'Cluster', y = 'Average Price', title = 'Average Rental Price by Cluster')
+```
+
+
+
